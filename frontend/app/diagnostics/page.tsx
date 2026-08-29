@@ -118,10 +118,11 @@ export default function DiagnosticsPage() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://nit-medical-model-4.onrender.com";
 
     try {
-      const response = await fetch(`${apiUrl}/predict`, {
-        method: "POST",
-        body: formData,
-      });
+     // Change this in your frontend code:
+const response = await fetch(`${apiUrl}/predict/brain`, {
+  method: "POST",
+  body: formData,
+});
 
       const contentType = response.headers.get("content-type");
       
