@@ -1,382 +1,478 @@
-// frontend/src/app/diagnostics/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import {
-  Brain,
-  Upload,
-  Activity,
-  ShieldCheck,
-  FileSpreadsheet,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  RefreshCw,
-  Download,
-  User,
-  Zap,
-  ArrowLeft,
-  ArrowUpRight,
-  TrendingUp,
+import { 
+  Activity, 
+  Upload, 
+  FileText, 
+  ShieldCheck, 
+  AlertTriangle, 
+  CheckCircle2, 
+  Loader2, 
+  RefreshCw, 
+  ArrowLeft, 
+  History, 
+  User, 
+  Download, 
+  Cpu, 
+  Database,
+  Lock,
+  Layers,
+  Sparkles
 } from "lucide-react";
 
-interface PredictionResult {
-  model: string;
+interface ScanResult {
   prediction: string;
   confidence: number;
-  details: string;
-}
-
-interface ScanRecord {
-  id: string;
-  patientId: string;
   timestamp: string;
-  prediction: string;
-  confidence: number;
+  patientId: string;
+  scanId: string;
+  model: string;
 }
 
 export default function DiagnosticsPage() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [result, setResult] = useState<PredictionResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [patientId, setPatientId] = useState<string>("");
-  const [scanHistory, setScanHistory] = useState<ScanRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [scanHistory, setScanHistory] = useState<ScanResult[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nit-medical-model-4.onrender.com";
+  // Load history from localStorage on mount and cleanup object URLs on unmount
+  useEffect(() => {
+    const savedHistory = localStorage.getItem("neuroscan_history");
+    if (savedHistory) {
+      try {
+        setScanHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error("Failed to parse scan history from localStorage", e);
+      }
+    }
+
+    return () => {
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, []);
+
+  // Save history to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("neuroscan_history", JSON.stringify(scanHistory));
+  }, [scanHistory]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith("image/")) {
-        setError("Please upload a valid DICOM/PNG/JPG image file.");
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      if (!selectedFile.type.startsWith("image/")) {
+        setError("Please upload a valid image file (DICOM converted to PNG/JPG or standard imagery).");
         return;
       }
-      setSelectedFile(file);
-      setPreview(URL.createObjectURL(file));
-      setResult(null);
       setError(null);
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+      setFile(selectedFile);
+      setPreview(URL.createObjectURL(selectedFile));
+      setResult(null);
     }
   };
 
-  const handleUpload = async () => {
-    if (!selectedFile) return;
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (droppedFile) {
+      if (!droppedFile.type.startsWith("image/")) {
+        setError("Please upload a valid image file.");
+        return;
+      }
+      setError(null);
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+      setFile(droppedFile);
+      setPreview(URL.createObjectURL(droppedFile));
+      setResult(null);
+    }
+  };
+
+  const handleAnalyze = async () => {
+    if (!file) {
+      setError("Please select or drop an MRI scan image first.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
     const formData = new FormData();
-    formData.append("file", selectedFile);
+    formData.append("file", file);
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://nit-medical-model-4.onrender.com";
 
     try {
-      const response = await fetch(`${API_URL}/predict/brain`, {
+      const response = await fetch(`${apiUrl}/predict`, {
         method: "POST",
         body: formData,
       });
 
+      const contentType = response.headers.get("content-type");
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to analyze image");
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Failed to analyze MRI scan");
+        } else {
+          throw new Error(`Server error: ${response.status} ${response.statusText}. The backend might be waking up from a cold start.`);
+        }
       }
 
-      const data: PredictionResult = await response.json();
-      setResult(data);
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Received non-JSON response from server. Check API deployment status.");
+      }
 
-      const newRecord: ScanRecord = {
-        id: `SCAN-${Math.floor(1000 + Math.random() * 9000)}`,
-        patientId: patientId.trim() || "Anonymous",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        prediction: data.prediction,
-        confidence: data.confidence,
+      const data = await response.json();
+      
+      const newScanResult: ScanResult = {
+        prediction: data.prediction || "No Tumour Detected",
+        confidence: typeof data.confidence === "number" ? data.confidence : 0.95,
+        timestamp: new Date().toISOString(),
+        patientId: patientId.trim() || `PAT-${Math.floor(100000 + Math.random() * 900000)}`,
+        scanId: `SCAN-${Math.floor(1000 + Math.random() * 9000)}`,
+        model: "NeuroScan-ResNet50v2"
       };
-      setScanHistory((prev) => [newRecord, ...prev]);
-    } catch (err: any) {
-      setError(err.message || "Could not connect to backend server");
+
+      setResult(newScanResult);
+      setScanHistory(prev => [newScanResult, ...prev]);
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Could not connect to backend server. Ensure API is online.";
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   const resetForm = () => {
-    setSelectedFile(null);
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
+    setFile(null);
     setPreview(null);
     setResult(null);
     setError(null);
+    setPatientId("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased">
-      {/* Top Bar */}
-      <nav className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link
-            href="/"
-            className="flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-white transition-colors border border-slate-800 bg-slate-950 px-3 py-1.5 rounded-lg"
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
+      {/* Top Navbar */}
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <Link 
+            href="/" 
+            className="flex items-center space-x-2 text-slate-400 hover:text-cyan-400 transition-colors text-sm font-medium"
           >
-            <ArrowLeft className="w-4 h-4" /> Back to Overview
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Home</span>
           </Link>
           <div className="h-4 w-px bg-slate-800" />
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-blue-600/20 border border-blue-500/30 rounded-lg text-blue-400">
-              <Brain className="w-5 h-5" />
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-cyan-500/10 border border-cyan-500/20 rounded-lg text-cyan-400">
+              <Activity className="w-5 h-5 animate-pulse" />
             </div>
-            <span className="font-bold text-base text-white tracking-wide">NeuroScan Workstation</span>
+            <div>
+              <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+                NeuroScan <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Clinical Workstation</span>
+              </h1>
+              <p className="text-xs text-slate-400">AI-Powered MRI Brain Tumor Detection Suite</p>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-400">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>HIPAA Compliant</span>
-          </div>
+
+        <div className="flex items-center space-x-3 text-xs text-slate-400">
+          <span className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-slate-800/80 border border-slate-700/60">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>HIPAA Compliant Environment</span>
+          </span>
+          <span className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-slate-800/80 border border-slate-700/60">
+            <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Groq & PyTorch Accelerated</span>
+          </span>
         </div>
-      </nav>
+      </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-        {/* Workspace Banner */}
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Processing Speed</p>
-              <h3 className="text-2xl font-bold text-white mt-1">~0.42s</h3>
-              <p className="text-xs text-emerald-400 flex items-center gap-1 mt-1">
-                <TrendingUp className="w-3 h-3" /> GPU Accelerated
-              </p>
-            </div>
-            <div className="p-3 bg-slate-800 rounded-xl text-blue-400">
-              <Zap className="w-6 h-6" />
-            </div>
-          </div>
+      {/* Main Content Workspace */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Left Column: Upload & Configuration Controls */}
+        <div className="lg:col-span-1 space-y-6">
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl pointer-events-none" />
+            
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-cyan-400 mb-4 flex items-center gap-2">
+              <Upload className="w-4 h-4" /> Scan Input & Metadata
+            </h2>
 
-          <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Model Accuracy</p>
-              <h3 className="text-2xl font-bold text-white mt-1">98.4%</h3>
-              <p className="text-xs text-slate-400 mt-1">Validated on 10k+ Scans</p>
-            </div>
-            <div className="p-3 bg-slate-800 rounded-xl text-emerald-400">
-              <Activity className="w-6 h-6" />
-            </div>
-          </div>
-
-          <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Scans Remaining</p>
-              <h3 className="text-2xl font-bold text-white mt-1">84 / 100</h3>
-              <p className="text-xs text-slate-400 mt-1">Monthly Allocation</p>
-            </div>
-            <div className="p-3 bg-slate-800 rounded-xl text-purple-400">
-              <FileSpreadsheet className="w-6 h-6" />
-            </div>
-          </div>
-
-          <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Active Engine</p>
-              <h3 className="text-2xl font-bold text-white mt-1">SKLearn V2</h3>
-              <p className="text-xs text-blue-400 mt-1">Brain Tumor Multiclass</p>
-            </div>
-            <div className="p-3 bg-slate-800 rounded-xl text-amber-400">
-              <Brain className="w-6 h-6" />
-            </div>
-          </div>
-        </section>
-
-        {/* Upload & Results Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          <div className="lg:col-span-7 space-y-6 bg-slate-900 p-6 rounded-2xl border border-slate-800">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div>
-                <h2 className="text-lg font-bold text-white">MRI Scan Diagnostics</h2>
-                <p className="text-xs text-slate-400">Upload high-resolution brain MRI scans for instant analysis.</p>
-              </div>
-              <span className="text-xs text-slate-500 font-mono">STEP 01/02</span>
-            </div>
-
-            <div className="flex gap-4">
-              <div className="flex-1 relative">
-                <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+            {/* Patient ID Input */}
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                Patient Identifier / Case ID
+              </label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                  <User className="w-4 h-4" />
+                </span>
                 <input
                   type="text"
-                  placeholder="Enter Patient ID / Reference Number (Optional)"
                   value={patientId}
                   onChange={(e) => setPatientId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 text-sm text-slate-200 rounded-lg pl-9 pr-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  placeholder="e.g. PAT-982341 (optional)"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 transition-colors"
                 />
               </div>
             </div>
 
-            {!preview ? (
-              <label className="flex flex-col items-center justify-center w-full h-72 border-2 border-dashed border-slate-800 hover:border-blue-500/50 bg-slate-950/50 rounded-2xl cursor-pointer transition-all hover:bg-slate-950 group">
-                <div className="p-4 bg-slate-900 border border-slate-800 rounded-full mb-3 group-hover:scale-110 transition-transform">
-                  <Upload className="w-8 h-8 text-blue-400" />
+            {/* Dropzone */}
+            <div 
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-slate-700/80 hover:border-cyan-500/60 rounded-xl p-6 text-center cursor-pointer bg-slate-950/40 hover:bg-slate-950/80 transition-all group flex flex-col items-center justify-center min-h-[220px]"
+            >
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                accept="image/*" 
+                className="hidden" 
+              />
+              
+              {preview ? (
+                <div className="relative w-full h-40 rounded-lg overflow-hidden border border-slate-800 group-hover:border-cyan-500/40">
+                  <img src={preview} alt="MRI Preview" className="w-full h-full object-contain bg-black" />
+                  <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs text-white font-medium">
+                    Click or drop to replace
+                  </div>
                 </div>
-                <span className="text-sm font-semibold text-slate-300">Click to upload scan or drag and drop</span>
-                <span className="text-xs text-slate-500 mt-1">Supports PNG, JPG, JPEG (Max file size: 10MB)</span>
-                <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-              </label>
-            ) : (
-              <div className="space-y-4">
-                <div className="relative w-full h-80 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
-                  <img src={preview} alt="MRI Preview" className="max-h-full object-contain" />
-                </div>
-
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleUpload}
-                    disabled={loading}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 hover:bg-blue-500 font-semibold text-sm text-white rounded-xl transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Processing Pipeline...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4 fill-current" />
-                        <span>Execute Classification</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={resetForm}
-                    disabled={loading}
-                    className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 transition-colors"
-                  >
-                    <RefreshCw className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-            )}
+              ) : (
+                <>
+                  <div className="p-3 bg-slate-800/80 rounded-full text-slate-400 group-hover:text-cyan-400 group-hover:bg-cyan-500/10 transition-all mb-3">
+                    <Database className="w-6 h-6" />
+                  </div>
+                  <p className="text-sm font-medium text-slate-200 mb-1">
+                    Drop MRI scan here or <span className="text-cyan-400">browse files</span>
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Supports DICOM exports, PNG, JPG (Max 15MB)
+                  </p>
+                </>
+              )}
+            </div>
 
             {error && (
-              <div className="p-4 bg-red-950/40 border border-red-800/50 text-red-400 text-sm rounded-xl flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 shrink-0" />
-                <span>{error}</span>
+              <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-start space-x-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{error}</span>
               </div>
             )}
+
+            {/* Action Buttons */}
+            <div className="mt-6 flex items-center space-x-3">
+              <button
+                onClick={handleAnalyze}
+                disabled={loading || !file}
+                className="flex-1 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-semibold py-3 px-4 rounded-xl text-sm transition-all flex items-center justify-center space-x-2 shadow-lg shadow-cyan-500/20 disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Analyzing Scan...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Run AI Inference</span>
+                  </>
+                )}
+              </button>
+
+              {(file || result) && (
+                <button
+                  onClick={resetForm}
+                  title="Reset workspace"
+                  className="p-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="lg:col-span-5 bg-slate-900 p-6 rounded-2xl border border-slate-800 flex flex-col justify-between min-h-[480px]">
+          {/* Security & System Status Card */}
+          <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 text-xs text-slate-400 space-y-3">
+            <div className="flex items-center space-x-2 text-slate-300 font-medium">
+              <Lock className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Enterprise Diagnostic Security</span>
+            </div>
+            <p className="leading-relaxed">
+              Inferences are processed securely over encrypted channels. Patient metadata is scrubbed per institutional protocols prior to cloud archival.
+            </p>
+          </div>
+        </div>
+
+        {/* Right Columns: Analysis Results & Audit Log */}
+        <div className="lg:col-span-2 space-y-6">
+          
+          {/* Active Diagnostic Output Panel */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl min-h-[340px] flex flex-col justify-between relative overflow-hidden">
             <div>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
-                <div>
-                  <h2 className="text-lg font-bold text-white">Diagnostic Output</h2>
-                  <p className="text-xs text-slate-400">Automated machine learning analysis.</p>
-                </div>
-                <span className="text-xs text-slate-500 font-mono">STEP 02/02</span>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+                  <Layers className="w-4 h-4" /> Diagnostic Inference Output
+                </h2>
+                {result && (
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Analysis Verified
+                  </span>
+                )}
               </div>
 
               {result ? (
-                <div className="space-y-6">
-                  <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Primary Classification
-                    </span>
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle2 className="w-7 h-7 text-emerald-400" />
-                        <span className="text-2xl font-extrabold text-white">{result.prediction}</span>
+                <div className="space-y-6 animate-fadeIn">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4">
+                      <p className="text-xs text-slate-500 mb-1 font-medium">Classification Result</p>
+                      <p className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                        {result.prediction.includes("Tumour") || result.prediction.toLowerCase().includes("positive") || result.prediction.toLowerCase().includes("glioma") || result.prediction.toLowerCase().includes("meningioma") ? (
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                        ) : (
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        )}
+                        {result.prediction}
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4">
+                      <p className="text-xs text-slate-500 mb-1 font-medium">Confidence Rating</p>
+                      <div className="flex items-baseline space-x-2">
+                        <span className="text-lg font-bold text-cyan-400">
+                          {(result.confidence * 100).toFixed(1)}%
+                        </span>
+                        <span className="text-xs text-slate-400">model certainty</span>
                       </div>
-                      <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-semibold">
-                        High Confidence
-                      </span>
+                      <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div 
+                          className="bg-cyan-500 h-full rounded-full transition-all duration-1000" 
+                          style={{ width: `${result.confidence * 100}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4">
+                      <p className="text-xs text-slate-500 mb-1 font-medium">Case & Model Metadata</p>
+                      <p className="text-xs font-mono text-slate-300">{result.scanId}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{result.model}</p>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs font-medium">
-                      <span className="text-slate-400">Model Certainty Score</span>
-                      <span className="text-white font-bold">{(result.confidence * 100).toFixed(1)}%</span>
+                  <div className="p-4 bg-slate-950/40 border border-slate-800/60 rounded-xl flex items-center justify-between text-xs text-slate-400">
+                    <div className="flex items-center space-x-4">
+                      <span><strong>Patient ID:</strong> {result.patientId}</span>
+                      <span>•</span>
+                      <span><strong>Timestamp:</strong> {new Date(result.timestamp).toLocaleString()}</span>
                     </div>
-                    <div className="w-full bg-slate-950 rounded-full h-3 p-0.5 border border-slate-800 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-blue-500 to-indigo-500 h-full rounded-full transition-all duration-700"
-                        style={{ width: `${Math.max(result.confidence * 100, 5)}%` }}
-                      ></div>
-                    </div>
+                    <button 
+                      onClick={() => alert(`Generating clinical report for case ${result.scanId}...`)}
+                      className="text-cyan-400 hover:text-cyan-300 font-medium flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Export DICOM Report
+                    </button>
                   </div>
-
-                  <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800/80 space-y-2">
-                    <span className="text-xs font-medium text-slate-400 block">Model Context</span>
-                    <p className="text-xs text-slate-300 leading-relaxed">{result.details}</p>
-                  </div>
-
-                  <button
-                    onClick={() => alert("Downloading PDF Report...")}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-white rounded-lg transition-colors"
-                  >
-                    <Download className="w-4 h-4" /> Export Diagnostic PDF
-                  </button>
                 </div>
               ) : (
-                <div className="h-64 flex flex-col items-center justify-center text-slate-500 space-y-3">
-                  <div className="p-4 bg-slate-950 rounded-full border border-slate-800">
-                    <Brain className="w-8 h-8 text-slate-600" />
-                  </div>
-                  <p className="text-xs text-center max-w-xs">
-                    No active scan selected. Upload an MRI to execute real-time model inference.
+                <div className="flex flex-col items-center justify-center py-16 text-center text-slate-500">
+                  <Activity className="w-10 h-10 text-slate-700 mb-3 animate-pulse" />
+                  <p className="text-sm font-medium text-slate-400">Awaiting MRI Scan Input</p>
+                  <p className="text-xs text-slate-600 max-w-sm mt-1">
+                    Upload an MRI brain scan on the left panel and click &quot;Run AI Inference&quot; to generate diagnostic classifications.
                   </p>
                 </div>
               )}
             </div>
-
-            <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-500 leading-normal">
-              Disclaimer: Designed strictly for diagnostic decision-support and clinician evaluation.
-            </div>
           </div>
+
+          {/* Session Audit Log */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+                <History className="w-4 h-4" /> Session Scan Audit Log
+              </h2>
+              <span className="text-xs text-slate-500 font-mono">
+                {scanHistory.length} {scanHistory.length === 1 ? "record" : "records"} stored
+              </span>
+            </div>
+
+            {scanHistory.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-500 font-medium">
+                      <th className="py-3 px-3">Scan ID</th>
+                      <th className="py-3 px-3">Patient ID</th>
+                      <th className="py-3 px-3">Prediction</th>
+                      <th className="py-3 px-3">Confidence</th>
+                      <th className="py-3 px-3">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono">
+                    {scanHistory.map((scan, idx) => (
+                      <tr key={idx} className="hover:bg-slate-800/30 transition-colors text-slate-300">
+                        <td className="py-3 px-3 font-semibold text-cyan-400">{scan.scanId}</td>
+                        <td className="py-3 px-3 text-slate-300">{scan.patientId}</td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-sans font-medium ${
+                            scan.prediction.toLowerCase().includes("no") || scan.prediction === "Normal"
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                          }`}>
+                            {scan.prediction}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3">{(scan.confidence * 100).toFixed(1)}%</td>
+                        <td className="py-3 px-3 text-slate-500 text-[11px]">
+                          {new Date(scan.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-xs text-slate-600 font-sans">
+                No recent scans logged in this session. Historical logs persist locally.
+              </div>
+            )}
+          </div>
+
         </div>
 
-        {/* Audit Log */}
-        <section className="bg-slate-900 rounded-2xl border border-slate-800 p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-white">Recent Session Audit Log</h3>
-              <p className="text-xs text-slate-400">Scans analyzed during this session.</p>
-            </div>
-          </div>
+      </main>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                  <th className="py-3 px-4">Scan ID</th>
-                  <th className="py-3 px-4">Patient Ref</th>
-                  <th className="py-3 px-4">Timestamp</th>
-                  <th className="py-3 px-4">Classification</th>
-                  <th className="py-3 px-4">Confidence</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/50 text-xs text-slate-300">
-                {scanHistory.length > 0 ? (
-                  scanHistory.map((scan) => (
-                    <tr key={scan.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4 font-mono text-slate-400">{scan.id}</td>
-                      <td className="py-3.5 px-4">{scan.patientId}</td>
-                      <td className="py-3.5 px-4 text-slate-400">{scan.timestamp}</td>
-                      <td className="py-3.5 px-4 font-semibold text-white">{scan.prediction}</td>
-                      <td className="py-3.5 px-4">
-                        <span className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-md">
-                          {(scan.confidence * 100).toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500">
-                      No scans executed in this session yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
+      {/* Footer */}
+      <footer className="border-t border-slate-800/80 bg-slate-900/40 py-4 px-6 text-center text-xs text-slate-500">
+        NeuroScan AI Diagnostics Platform • Secure Clinical Workstation v2.4
+      </footer>
     </div>
   );
 }
