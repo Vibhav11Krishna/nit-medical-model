@@ -45,7 +45,7 @@ export default function DiagnosticsPage() {
   const [patientId, setPatientId] = useState<string>("");
   const [scanHistory, setScanHistory] = useState<ScanRecord[]>([]);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nit-medical-model-4.onrender.com";
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
