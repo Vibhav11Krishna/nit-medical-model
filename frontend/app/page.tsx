@@ -150,7 +150,7 @@ export default function LandingPage() {
         </div>
         
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white tracking-tight leading-[1.1] max-w-5xl mx-auto">
-          3D Brain Tumor Classification via <span className="bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">Random Forest ML</span>
+           Brain Tumor Classification via <span className="bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">Random Forest ML</span>
         </h1>
         
         <p className="text-base sm:text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
