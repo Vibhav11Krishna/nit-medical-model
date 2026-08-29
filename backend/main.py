@@ -16,7 +16,7 @@ app.add_middleware(
 )
 
 # 1. Load Brain Model
-BRAIN_MODEL_PATH = "models/brain_tumor_model.pkl"
+BRAIN_MODEL_PATH = "backend/models/brain_tumor_model.pkl"
 brain_model = joblib.load(BRAIN_MODEL_PATH)
 
 # Class Labels (Mapped: 0 -> No Tumor, 1 -> Glioma, 2 -> Meningioma, 3 -> Pituitary)
