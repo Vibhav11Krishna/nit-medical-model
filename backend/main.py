@@ -16,6 +16,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Root endpoint to handle base URL health checks
+@app.get("/")
+async def root():
+    return {"message": "Brain Tumor Detection API is running successfully!"}
+
 # 1. Robust Load Brain Model Path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BRAIN_MODEL_PATH = os.path.join(BASE_DIR, "models", "brain_tumor_model.pkl")
