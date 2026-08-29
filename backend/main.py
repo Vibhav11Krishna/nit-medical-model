@@ -6,10 +6,10 @@ import cv2
 
 app = FastAPI(title="Brain Tumor Detection API")
 
-# Enable CORS for Next.js frontend
+# Enable CORS for Next.js frontend (Local & Vercel Production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],  # Allows requests from your Vercel frontend and local development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
