@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧠 NeuroScan RF Cloud
+#  NeuroScan RF Cloud
 ### Enterprise-Grade Brain Tumor Classification & Diagnostic Platform
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-blue?style=for-the-badge&logo=vercel)](https://nit-medical-model.vercel.app/)
@@ -14,7 +14,7 @@
 
 ---
 
-## 📋 Overview
+##  Overview
 
 **NeuroScan RF** is an end-to-end full-stack AI platform built to process multi-dimensional brain MRI scans, convert image tensors into structured arrays, and classify tumor types with high clinical precision. Originally developed during an internship training program as a local machine learning script, the project has since evolved into a production-ready cloud application featuring a decoupled **Next.js** frontend and an asynchronous **FastAPI** inference engine.
 
@@ -22,7 +22,7 @@
 
 ---
 
-## 🚀 Key Features
+##  Key Features
 
 * **Automated Pathology Mapping:** Instantly categorizes multi-dimensional brain scans into distinct classifications (**Glioma, Meningioma, Pituitary, and Normal**) with granular probability breakdowns.
 * **Ensemble Random Forest Core:** Utilizes robust decision tree bagging via Scikit-learn, preventing overfitting and maintaining high diagnostic generalizability.
@@ -32,7 +32,7 @@
 
 ---
 
-## ⚙️ Tech Stack
+##  Tech Stack
 
 * **Frontend:** Next.js, React, Tailwind CSS, TypeScript
 * **Backend & API:** Python, FastAPI, Uvicorn
@@ -42,7 +42,7 @@
 
 ---
 
-## 🔄 System Architecture & Data Flow
+##  System Architecture & Data Flow
 
 ```text
 [ Raw MRI Scan ] 
@@ -62,7 +62,7 @@
 
 ---
 
-## 💻 Local Installation & Setup
+##  Local Installation & Setup
 
 If you want to run this project locally, follow these steps:
 
@@ -90,7 +90,7 @@ npm run dev
 
 ---
 
-## 🔮 Future Roadmap
+##  Future Roadmap
 
 * **Deep Learning Integration:** Transitioning from baseline Random Forest models to advanced Convolutional Neural Networks (CNNs) and Vision Transformers (ViTs) for enhanced feature extraction.
 * **Secure Role-Based Access Control (RBAC):** Implementing authentication layers tailored for clinical staff and administrators.
